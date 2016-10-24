@@ -1,0 +1,6 @@
+Flask
+Flask-Migrate
+Flask-OAuthlib
+Flask-SQLAlchemy
+Flask-Script
+jwt
