@@ -10,6 +10,7 @@ import enum
 
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func
+from sqlalchemy.types import JSON
 
 
 db = SQLAlchemy()
@@ -52,9 +53,9 @@ class Resource(db.Model):
 
     A Resource contains data objects (``ResourceData``) which in turn contain
     the actual data being exchanged. Each child data object equates to a
-    specific version of the resource.
+    specific version of the master data of the resource.
 
-    The Resource object itself tracks a context for the information at-large,
+    The Resource object itself tracks metadata for the information at-large,
     across versions: such as global resource ID, initial post/date time,
     tags and the like.
     """
@@ -66,7 +67,11 @@ class Resource(db.Model):
     )
 
     data = db.Relationship(
-        "ResourceData", backref=db.backref("resource"))
+        "ResourceData", backref=db.backref("resource")
+    )
+    attachments = db.Relationship(
+        "ResourceAttachment", backref=db.backref("resource")
+    )
 
     @property
     def current_version(self):
@@ -76,17 +81,70 @@ class Resource(db.Model):
     @property
     def current_version_number(self):
         """Return the most recent version number of all child resources."""
-        return self.current_version if self.current_version else 0
+        return self.current_version.version if self.current_version else 0
 
     @property
     def json(self):
         return {
             "id": self.id,
-            "current_version_number": self.current_version_number,
-            "data": [x.json for x in self.data]
+            "current_version": self.current_version_number,
+            "created_at": self.created_at.isoformat(),
+            "data": {x.version: x.json for x in self.data},
+            "attachments": {x.version: x.json for x in self.attachments}
         }
 
 
 class ResourceData(db.Model):
+    """
+    Contains the raw data being exchanged with a Resource.
+
+    The ResourceData object is a versioned iteration of the actual master data
+    associated with a Resource. It contains metadata for this iteration of the
+    data as well as the data itself as a JSON-encoded document.
+    """
+    __tablename__ = "resource_data"
     id = db.Column(db.Integer, primary_key=True)
-    version = db.Column(db.Integer)
+
+    version = db.Column(db.Integer, index=True)
+    created_at = db.Column(db.DateTime, default=func.now(), index=True)
+    resource_type = db.Column(db.String, index=True)
+    resource_id = db.Column(db.Integer, db.ForeignKey("resource.id"))
+
+    data = db.Column(JSON)
+
+    @property
+    def json(self):
+        return {
+            "resource_type": self.resource_type,
+            "version": self.version,
+            "created_at": self.created_at.isoformat(),
+            "data": self.data
+        }
+
+
+class ResourceAttachment(db.Model):
+    """
+    Contains linked data being exchanged with a Resource.
+
+    The ResourceAttachment object is a versioned iteration of data
+    accompanying a Resource, such as a link to an image, external link or
+    resource.
+    """
+    __tablename__ = "resource_attachment"
+    id = db.Column(db.Integer, primary_key=True)
+
+    version = db.Column(db.Integer, index=True)
+    created_at = db.Column(db.DateTime, default=func.now())
+    attachment_type = db.Column(db.String)
+    resource_id = db.Column(db.Integer, db.ForeignKey("resource.id"))
+
+    data = db.Column(JSON)
+
+    @property
+    def json(self):
+        return {
+            "attachment_type": self.attachment_type,
+            "version": self.version,
+            "created_at": self.created_at.isoformat(),
+            "data": self.data
+        }
