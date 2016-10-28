@@ -53,6 +53,7 @@ class Resource(db.Model):
     """
 
     id = db.Column(db.Integer, primary_key=True)
+    resource_type = db.Column(db.String, index=True)
     created_at = db.Column(db.DateTime, default=func.now())
     identity_id = db.Column(
         db.Integer, db.ForeignKey("identity.id"), index=True
@@ -88,9 +89,13 @@ class Resource(db.Model):
     def json(self):
         return {
             "id": self.id,
+            "identity_id": self.identity_id,
             "current_version": self.current_version_number,
             "created_at": self.created_at.isoformat(),
-            "data": {str(x.version): x.json for x in self.data},
+            "resource_type": self.resource_type,
+            "data": {
+                str(x.version): x.json for x in self.data
+            },
             "references": {
                 str(x.position): x.resource_id for x in self.references
             },
@@ -111,20 +116,17 @@ class ResourceData(db.Model):
     """
     __tablename__ = "resource_data"
     id = db.Column(db.Integer, primary_key=True)
-
     version = db.Column(db.Integer, index=True)
     created_at = db.Column(db.DateTime, default=func.now(), index=True)
-    resource_type = db.Column(db.String, index=True)
     resource_id = db.Column(db.Integer, db.ForeignKey("resource.id"))
     data = db.Column(JSON)
 
     @property
     def json(self):
-        data = {
-            "resource_type": self.resource_type,
-            "created_at": self.created_at.isoformat()
+        return {
+            "created_at": self.created_at.isoformat(),
+            **self.data
         }
-        return {**data, **self.data}
 
 
 class ResourceReference(db.Model):
