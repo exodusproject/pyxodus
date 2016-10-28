@@ -6,20 +6,12 @@ pyxodus
 Licensed under XXXXX, see LICENSE
 """
 
-import enum
-
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func
 from sqlalchemy.types import JSON
 
 
 db = SQLAlchemy()
-
-
-class ResourceTypes(enum.Enum):
-    STATUS = "1"
-    PHOTO = "2"
-    # Add more here!
 
 
 class Identity(db.Model):
@@ -29,7 +21,7 @@ class Identity(db.Model):
     created_at = db.Column(db.DateTime, default=func.now())
 
     resources = db.Relationship(
-        "Resource", backref=db.backref("identity"))
+        "Resource", backref=db.backref("identity", uselist=False))
 
     @property
     def fqn(self):
@@ -38,7 +30,7 @@ class Identity(db.Model):
 
     @property
     def json(self):
-        """Return the Identity as a serializable hash."""
+        """Return the Identity as a serializable dict."""
         return {
             "id": self.id,
             "name": self.name,
@@ -69,8 +61,17 @@ class Resource(db.Model):
     data = db.Relationship(
         "ResourceData", backref=db.backref("resource")
     )
-    attachments = db.Relationship(
-        "ResourceAttachment", backref=db.backref("resource")
+    metadata = db.Column(JSON)
+    references = db.relationship(
+        "ResourceReference",
+        backref=db.backref("from_resource", uselist=False),
+    )
+    referenced_from = db.relationship(
+        "ResourceReference",
+        backref=db.backref("to_resource", uselist=False),
+    )
+    mentions = db.relationship(
+        "ResourceMention", backref=db.backref("resource", uselist=False)
     )
 
     @property
@@ -89,8 +90,14 @@ class Resource(db.Model):
             "id": self.id,
             "current_version": self.current_version_number,
             "created_at": self.created_at.isoformat(),
-            "data": {x.version: x.json for x in self.data},
-            "attachments": {x.version: x.json for x in self.attachments}
+            "data": {str(x.version): x.json for x in self.data},
+            "references": {
+                str(x.position): x.resource_id for x in self.references
+            },
+            "mentions": {
+                str(x.position): x.identity_id for x in self.mentions
+            },
+            "meta": self.metadata
         }
 
 
@@ -109,42 +116,41 @@ class ResourceData(db.Model):
     created_at = db.Column(db.DateTime, default=func.now(), index=True)
     resource_type = db.Column(db.String, index=True)
     resource_id = db.Column(db.Integer, db.ForeignKey("resource.id"))
-
     data = db.Column(JSON)
 
     @property
     def json(self):
-        return {
+        data = {
             "resource_type": self.resource_type,
-            "version": self.version,
-            "created_at": self.created_at.isoformat(),
-            "data": self.data
+            "created_at": self.created_at.isoformat()
         }
+        return {**data, **self.data}
 
 
-class ResourceAttachment(db.Model):
+class ResourceReference(db.Model):
     """
-    Contains linked data being exchanged with a Resource.
+    A reference from one resource to another.
 
-    The ResourceAttachment object is a versioned iteration of data
-    accompanying a Resource, such as a link to an image, external link or
-    resource.
+    Can be used to create message threads, post attachments and the like.
     """
-    __tablename__ = "resource_attachment"
+    __tablename__ = "resource_reference"
     id = db.Column(db.Integer, primary_key=True)
+    position = db.Column(db.Integer)
+    from_resource_id = db.Column(db.Integer, db.ForeignKey("resource.id"))
+    to_resource_id = db.Column(db.Integer, db.ForeignKey("resource.id"))
 
-    version = db.Column(db.Integer, index=True)
-    created_at = db.Column(db.DateTime, default=func.now())
-    attachment_type = db.Column(db.String)
+
+class ResourceMention(db.Model):
+    """
+    A reference from one resource to one identity.
+
+    Can be used for status mentions (@-replys), photo tagging and the like.
+    """
+    __tablename__ = "resource_mention"
+    id = db.Column(db.Integer, primary_key=True)
+    position = db.Column(db.Integer)
     resource_id = db.Column(db.Integer, db.ForeignKey("resource.id"))
-
-    data = db.Column(JSON)
-
-    @property
-    def json(self):
-        return {
-            "attachment_type": self.attachment_type,
-            "version": self.version,
-            "created_at": self.created_at.isoformat(),
-            "data": self.data
-        }
+    identity_id = db.Column(db.Integer, db.ForeignKey("identity.id"))
+    identity = db.relationship(
+        "Identity", uselist=False, backref=db.backref("Mentions")
+    )
